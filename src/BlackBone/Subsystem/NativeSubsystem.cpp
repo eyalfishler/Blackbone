@@ -46,21 +46,22 @@ Native::Native( HANDLE hProcess, bool x86OS /*= false*/ )
     HMODULE hNtdll = GetModuleHandleW( L"ntdll.dll" );
     HMODULE hKernel32 = GetModuleHandleW( L"kernel32.dll" );
     
-    DynImport::load( "NtQueryInformationProcess",  hNtdll );
-    DynImport::load( "NtSetInformationProcess",    hNtdll );
-    DynImport::load( "NtQueryInformationThread",   hNtdll );
-    DynImport::load( "NtDuplicateObject",          hNtdll );
-    DynImport::load( "NtQueryObject",              hNtdll );  
-    DynImport::load( "NtQuerySection",             hNtdll );
-    DynImport::load( "RtlCreateActivationContext", hNtdll );
-    DynImport::load( "NtQueryVirtualMemory",       hNtdll );
-    DynImport::load( "NtCreateThreadEx",           hNtdll );
-    DynImport::load( "NtLockVirtualMemory",        hNtdll );
-    DynImport::load( "NtSuspendProcess",           hNtdll );
-    DynImport::load( "NtResumeProcess",            hNtdll );
-    DynImport::load( "Wow64GetThreadContext",      hKernel32 );
-    DynImport::load( "Wow64SetThreadContext",      hKernel32 );
-    DynImport::load( "Wow64SuspendThread",         hKernel32 );    
+    LOAD_IMPORT( "NtQueryInformationProcess",  hNtdll );
+    LOAD_IMPORT( "NtSetInformationProcess",    hNtdll );
+    LOAD_IMPORT( "NtQueryInformationThread",   hNtdll );
+    LOAD_IMPORT( "NtDuplicateObject",          hNtdll );
+    LOAD_IMPORT( "NtQueryObject",              hNtdll );  
+    LOAD_IMPORT( "NtQuerySection",             hNtdll );
+    LOAD_IMPORT( "RtlCreateActivationContext", hNtdll );
+    LOAD_IMPORT( "NtQueryVirtualMemory",       hNtdll );
+    LOAD_IMPORT( "NtCreateThreadEx",           hNtdll );
+    LOAD_IMPORT( "NtLockVirtualMemory",        hNtdll );
+    LOAD_IMPORT( "NtSuspendProcess",           hNtdll );
+    LOAD_IMPORT( "NtResumeProcess",            hNtdll );
+    LOAD_IMPORT( "RtlImageNtHeader",           hNtdll );
+    LOAD_IMPORT( "Wow64GetThreadContext",      hKernel32 );
+    LOAD_IMPORT( "Wow64SetThreadContext",      hKernel32 );
+    LOAD_IMPORT( "Wow64SuspendThread",         hKernel32 );    
 }
 
 /*
@@ -77,7 +78,7 @@ Native::~Native()
 /// <param name="flAllocationType">Allocation type</param>
 /// <param name="flProtect">Memory protection</param>
 /// <returns>Status code</returns>
-NTSTATUS Native::VirualAllocExT( ptr_t& lpAddress, size_t dwSize, DWORD flAllocationType, DWORD flProtect )
+NTSTATUS Native::VirtualAllocExT( ptr_t& lpAddress, size_t dwSize, DWORD flAllocationType, DWORD flProtect )
 {
     LastNtStatus( STATUS_SUCCESS );
     lpAddress = reinterpret_cast<ptr_t>
@@ -94,7 +95,7 @@ NTSTATUS Native::VirualAllocExT( ptr_t& lpAddress, size_t dwSize, DWORD flAlloca
 /// <param name="dwSize">Region size</param>
 /// <param name="dwFreeType">Memory release type.</param>
 /// <returns>Status code</returns>
-NTSTATUS Native::VirualFreeExT( ptr_t lpAddress, size_t dwSize, DWORD dwFreeType )
+NTSTATUS Native::VirtualFreeExT( ptr_t lpAddress, size_t dwSize, DWORD dwFreeType )
 {
     LastNtStatus( STATUS_SUCCESS );
     VirtualFreeEx( _hProcess, reinterpret_cast<LPVOID>(lpAddress), dwSize, dwFreeType );

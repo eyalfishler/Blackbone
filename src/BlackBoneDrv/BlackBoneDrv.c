@@ -11,12 +11,14 @@ NTSTATUS DriverEntry( IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING registr
 NTSTATUS BBInitDynamicData( IN OUT PDYNAMIC_DATA pData );
 NTSTATUS BBGetBuildNO( OUT PULONG pBuildNo );
 NTSTATUS BBScanSection( IN PCCHAR section, IN PCUCHAR pattern, IN UCHAR wildcard, IN ULONG_PTR len, OUT PVOID* ppFound );
+NTSTATUS BBLocatePageTables( IN OUT PDYNAMIC_DATA pData );
 VOID     BBUnload( IN PDRIVER_OBJECT DriverObject );
 
 #pragma alloc_text(INIT, DriverEntry)
 #pragma alloc_text(INIT, BBInitDynamicData)
 #pragma alloc_text(INIT, BBGetBuildNO)
 #pragma alloc_text(INIT, BBScanSection)
+#pragma alloc_text(INIT, BBLocatePageTables)
 
 /*
 */
@@ -226,16 +228,15 @@ NTSTATUS BBGetBuildNO( OUT PULONG pBuildNo )
 NTSTATUS BBInitDynamicData( IN OUT PDYNAMIC_DATA pData )
 {
     NTSTATUS status = STATUS_SUCCESS;
-    const ULONG w10Build = 10586;
     RTL_OSVERSIONINFOEXW verInfo = { 0 };
     ULONG buildNo = 0;
-
-    UNREFERENCED_PARAMETER( w10Build );
 
     if (pData == NULL)
         return STATUS_INVALID_ADDRESS;
 
     RtlZeroMemory( pData, sizeof( DYNAMIC_DATA ) );
+    pData->DYN_PDE_BASE = PDE_BASE;
+    pData->DYN_PTE_BASE = PTE_BASE;
 
     verInfo.dwOSVersionInfoSize = sizeof( verInfo );
     status = RtlGetVersion( (PRTL_OSVERSIONINFOW)&verInfo );
@@ -260,7 +261,7 @@ NTSTATUS BBInitDynamicData( IN OUT PDYNAMIC_DATA pData )
         if (ver_short != WINVER_81)
             return STATUS_NOT_SUPPORTED;
     #elif defined (_WIN10_)
-        if (ver_short != WINVER_10 || verInfo.dwBuildNumber != w10Build)
+        if (ver_short != WINVER_10 && ver_short != WINVER_10_AU)
             return STATUS_NOT_SUPPORTED;
     #endif
 
@@ -330,21 +331,45 @@ NTSTATUS BBInitDynamicData( IN OUT PDYNAMIC_DATA pData )
                     pData->ExRemoveTable -= 0x5E;
                 break;
 
-                // Windows 10, build 10586
+            // Windows 10, build 14393/10586
             case WINVER_10:
-                pData->KExecOpt         = 0x1BF;
-                pData->Protection       = 0x6B2;
-                pData->ObjTable         = 0x418;
-                pData->VadRoot          = 0x610;
-                pData->NtCreateThdIndex = 0xB4;
-                pData->NtTermThdIndex   = 0x53;
-                pData->PrevMode         = 0x232;
-                pData->ExitStatus       = 0x6E0;
-                pData->MiAllocPage      = 0;
-                if (NT_SUCCESS( BBScanSection( "PAGE", (PCUCHAR)"\x48\x8D\x7D\x18\x48\x8B", 0xCC, 6, (PVOID)&pData->ExRemoveTable ) ))
-                    pData->ExRemoveTable   -= 0x5C;
-                break;
+				if (verInfo.dwBuildNumber == 10586)
+				{
+					pData->KExecOpt         = 0x1BF;
+					pData->Protection       = 0x6B2;
+					pData->ObjTable         = 0x418;
+					pData->VadRoot          = 0x610;
+					pData->NtCreateThdIndex = 0xB4;
+					pData->NtTermThdIndex   = 0x53;
+					pData->PrevMode         = 0x232;
+					pData->ExitStatus       = 0x6E0;
+					pData->MiAllocPage      = 0;
+					if (NT_SUCCESS(BBScanSection("PAGE", (PCUCHAR)"\x48\x8D\x7D\x18\x48\x8B", 0xCC, 6, (PVOID)&pData->ExRemoveTable)))
+						pData->ExRemoveTable -= 0x5C;
+					break;
+				}
+				else if (verInfo.dwBuildNumber == 14393)
+				{
+                    pData->ver              = WINVER_10_AU;
+					pData->KExecOpt         = 0x1BF;
+					pData->Protection       = 0x6C2;
+					pData->ObjTable         = 0x418;
+					pData->VadRoot          = 0x620;
+					pData->NtCreateThdIndex = 0xB6;
+					pData->NtTermThdIndex   = 0x53;
+					pData->PrevMode         = 0x232;
+					pData->ExitStatus       = 0x6F0;
+					pData->MiAllocPage      = 0;
+					if (NT_SUCCESS(BBScanSection("PAGE", (PCUCHAR)"\x48\x8D\x7D\x18\x48\x8B", 0xCC, 6, (PVOID)&pData->ExRemoveTable)))
+						pData->ExRemoveTable -= 0x60;
 
+                    status = BBLocatePageTables( pData );
+					break;
+				}
+				else
+				{
+					return STATUS_NOT_SUPPORTED;
+				}
             default:
                 break;
         }
@@ -362,4 +387,24 @@ NTSTATUS BBInitDynamicData( IN OUT PDYNAMIC_DATA pData )
     }
 
     return status;
+}
+
+/// <summary>
+/// Get relocated PTE and PDE bases
+/// </summary>
+/// <param name="pData">Dynamic data</param>
+/// <returns>Status code</returns>
+NTSTATUS BBLocatePageTables( IN OUT PDYNAMIC_DATA pData )
+{
+    UNICODE_STRING uName = RTL_CONSTANT_STRING( L"MmGetPhysicalAddress" );
+    PUCHAR pMmGetPhysicalAddress = MmGetSystemRoutineAddress( &uName );
+    if (pMmGetPhysicalAddress)
+    {
+        PUCHAR pMiGetPhysicalAddress = *(PLONG)(pMmGetPhysicalAddress + 0xE + 1) + pMmGetPhysicalAddress + 0xE + 5;
+        pData->DYN_PDE_BASE = *(PULONG_PTR)(pMiGetPhysicalAddress + 0x49 + 2);
+        pData->DYN_PTE_BASE = *(PULONG_PTR)(pMiGetPhysicalAddress + 0x56 + 2);
+        return STATUS_SUCCESS;
+    }
+
+    return STATUS_NOT_FOUND;
 }

@@ -16,10 +16,10 @@ NtLdr::NtLdr( Process& proc )
 {
     HMODULE hNtdll = GetModuleHandleW( L"ntdll.dll" );
 
-    DynImport::load( "RtlInitUnicodeString",   hNtdll );
-    DynImport::load( "RtlHashUnicodeString",   hNtdll );
-    DynImport::load( "RtlUpcaseUnicodeChar",   hNtdll );
-    DynImport::load( "RtlEncodeSystemPointer", hNtdll );
+    LOAD_IMPORT( "RtlInitUnicodeString",   hNtdll );
+    LOAD_IMPORT( "RtlHashUnicodeString",   hNtdll );
+    LOAD_IMPORT( "RtlUpcaseUnicodeChar",   hNtdll );
+    LOAD_IMPORT( "RtlEncodeSystemPointer", hNtdll );
 }
 
 NtLdr::~NtLdr(void)
@@ -847,7 +847,22 @@ bool NtLdr::ScanPatterns( )
         ps.Search( pStart, scanSize, foundData );
 
         if (!foundData.empty())
+        {
             _LdrpHandleTlsData = static_cast<uintptr_t>(foundData.front() - 0x43);
+            foundData.clear();
+        }
+
+        // RtlInsertInvertedFunctionTable
+        // 8B C3 2B D3 48 8D 48 01
+        PatternSearch ps2( "\x8B\xC3\x2B\xD3\x48\x8D\x48\x01" );
+        ps2.Search( pStart, scanSize, foundData );
+
+        if (!foundData.empty())
+        {
+            _RtlInsertInvertedFunctionTable = static_cast<uintptr_t>(foundData.front() - 0x84);
+            if (IsWindows10OrGreater())
+                _LdrpInvertedFunctionTable = *reinterpret_cast<int32_t*>(foundData.front() - 0x27 + 3) + (foundData.front() - 0x27 + 7);
+        }
     #else
         // RtlInsertInvertedFunctionTable
         // 53 56 57 8B DA 8B F9 50 
@@ -1009,28 +1024,28 @@ bool NtLdr::ScanPatterns( )
     // 
 #ifndef BLACBONE_NO_TRACE
     if (_LdrpHashTable == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrpHashTable not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrpHashTable not found" );
     if (IsWindows8OrGreater() && _LdrpModuleIndexBase == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrpModuleIndexBase not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrpModuleIndexBase not found" );
     if (_LdrHeapBase == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrHeapBase not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrHeapBase not found" );
     if (_LdrpHandleTlsData == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrpHandleTlsData not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrpHandleTlsData not found" );
 #ifdef USE64
     if (IsWindows7OrGreater() && !IsWindows8OrGreater())
     {
         if (_LdrKernel32PatchAddress == 0)
-            BLACBONE_TRACE( "NativeLdr: LdrKernel32PatchAddress not found" );
+            BLACKBONE_TRACE( "NativeLdr: LdrKernel32PatchAddress not found" );
         if (_APC64PatchAddress == 0)
-            BLACBONE_TRACE( "NativeLdr: APC64PatchAddress not found" );
+            BLACKBONE_TRACE( "NativeLdr: APC64PatchAddress not found" );
     }
 #else
     if (_LdrpInvertedFunctionTable == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrpInvertedFunctionTable not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrpInvertedFunctionTable not found" );
     if (_RtlInsertInvertedFunctionTable == 0)
-        BLACBONE_TRACE( "NativeLdr: RtlInsertInvertedFunctionTable not found" );
+        BLACKBONE_TRACE( "NativeLdr: RtlInsertInvertedFunctionTable not found" );
     if (IsWindows8Point1OrGreater() && _LdrProtectMrdata == 0)
-        BLACBONE_TRACE( "NativeLdr: LdrProtectMrdata not found" );
+        BLACKBONE_TRACE( "NativeLdr: LdrProtectMrdata not found" );
 #endif
 #endif
     return true;
@@ -1043,14 +1058,18 @@ bool NtLdr::ScanPatterns( )
 /// <returns>true on success</returns>
 bool NtLdr::FindLdrHeap()
 {
-    PEB_T* pPeb = reinterpret_cast<PEB_T*>(_process.core().peb());
+    int32_t retries = 10;
+    PEB_T Peb = { 0 };
     MEMORY_BASIC_INFORMATION64 mbi = { 0 };
 
-    if (pPeb)
-    {
-        PEB_LDR_DATA Ldr = _process.memory().Read<PEB_LDR_DATA>( _process.memory().Read<uintptr_t>( GET_FIELD_PTR( pPeb, Ldr ) ) );
-        PLDR_DATA_TABLE_ENTRY NtdllEntry = CONTAINING_RECORD( Ldr.InMemoryOrderModuleList.Flink, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks );
+    _process.core().peb( &Peb );
+    for (; Peb.Ldr == 0 && retries > 0; retries--, Sleep( 10 ))
+        _process.core().peb( &Peb );
 
+    if (Peb.Ldr)
+    {
+        auto Ldr = _process.memory().Read<PEB_LDR_DATA_T>( Peb.Ldr );
+        auto NtdllEntry = CONTAINING_RECORD( Ldr.InMemoryOrderModuleList.Flink, LDR_DATA_TABLE_ENTRY_BASE_T, InMemoryOrderLinks );
         if (_process.core().native()->VirtualQueryExT( reinterpret_cast<ptr_t>(NtdllEntry), &mbi ) == STATUS_SUCCESS)
         {
             _LdrHeapBase = static_cast<uintptr_t>(mbi.AllocationBase);

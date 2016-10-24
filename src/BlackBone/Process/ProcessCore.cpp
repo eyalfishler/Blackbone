@@ -14,7 +14,7 @@ namespace blackbone
 ProcessCore::ProcessCore()
     : _native( nullptr )
 {
-    DynImport::load( "GetProcessDEPPolicy", L"kernel32.dll" );
+    LOAD_IMPORT( "GetProcessDEPPolicy", L"kernel32.dll" );
 }
 
 ProcessCore::~ProcessCore()
@@ -36,7 +36,7 @@ NTSTATUS ProcessCore::Open( DWORD pid, DWORD access )
     // Handle current process differently
     _hProcess = (pid == GetCurrentProcessId()) ? GetCurrentProcess() : OpenProcess( access, false, pid );
 
-    // Some routines in win10 does not support pseudo handle
+    // Some routines in win10 do not support pseudo handle
     if (IsWindows10OrGreater() && pid == GetCurrentProcessId())
         _hProcess = OpenProcess( PROCESS_ALL_ACCESS, FALSE, pid );
 

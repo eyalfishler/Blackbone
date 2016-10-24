@@ -5,6 +5,7 @@
 
 #include "../../Include/Winheaders.h"
 #include "../../Include/Macro.h"
+#include "../../Misc/Utils.h"
 #include "../Threads/Threads.h"
 
 #include <map>
@@ -53,13 +54,14 @@ public:
             _classFn   classFn;         // Class member pointer
         };
 
-        callback    onExecute;          // Callback called upon address breakpoint
-        callback    onReturn;           // Callback called upon function return
-        eHookType   type;               // int 3 or HWBP
-        eHookFlags  flags;              // Some hooking flags
-        uint8_t     oldByte;            // Original byte in case of int 3 hook
-        DWORD       threadID;           // Thread id for HWBP (0 means global hook for all threads)
-        int         hwbp_idx;           // Index of HWBP if applied to one thread only
+        callback   onExecute;           // Callback called upon address breakpoint
+        callback   onReturn;            // Callback called upon function return
+        eHookType  type;                // int 3 or HWBP
+        eHookFlags flags;               // Some hooking flags
+        uint8_t    oldByte;             // Original byte in case of int 3 hook
+        DWORD      threadID;            // Thread id for HWBP (0 means global hook for all threads)
+        int        hwbp_idx;            // Index of HWBP if applied to one thread only
+        _CONTEXT64 entryCtx;            // Thread context on function entry (used in function return hook)
     };
 
     typedef std::map<ptr_t, HookData> mapHook;
@@ -239,6 +241,7 @@ private:
 private:
     class ProcessMemory& _memory;
     class ProcessCore&   _core;
+    CriticalSection _lock;              // Hook lock
 
     DWORD        _debugPID = 0;         // PID of process being debugged
     HANDLE       _hEventThd = NULL;     // Debug Event thread

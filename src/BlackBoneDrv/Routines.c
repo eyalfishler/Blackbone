@@ -242,42 +242,33 @@ NTSTATUS BBCopyMemory( IN PCOPY_MEMORY pCopy )
     PEPROCESS pProcess = NULL, pSourceProc = NULL, pTargetProc = NULL;
     PVOID pSource = NULL, pTarget = NULL;
 
-    __try
-    {
-        status = PsLookupProcessByProcessId( (HANDLE)pCopy->pid, &pProcess );
+    status = PsLookupProcessByProcessId( (HANDLE)pCopy->pid, &pProcess );
 
-        if (NT_SUCCESS( status ))
+    if (NT_SUCCESS( status ))
+    {
+        SIZE_T bytes = 0;
+
+        // Write
+        if (pCopy->write != FALSE)
         {
-            SIZE_T bytes = 0;
-
-            // Write
-            if (pCopy->write != FALSE)
-            {
-                pSourceProc = PsGetCurrentProcess();
-                pTargetProc = pProcess;
-                pSource = (PVOID)pCopy->localbuf;
-                pTarget = (PVOID)pCopy->targetPtr;
-            }
-            // Read
-            else
-            {
-                pSourceProc = pProcess;
-                pTargetProc = PsGetCurrentProcess();
-                pSource = (PVOID)pCopy->targetPtr;
-                pTarget = (PVOID)pCopy->localbuf;
-            }
-
-            status = MmCopyVirtualMemory( pSourceProc, pSource, pTargetProc, pTarget, pCopy->size, KernelMode, &bytes );
+            pSourceProc = PsGetCurrentProcess();
+            pTargetProc = pProcess;
+            pSource = (PVOID)pCopy->localbuf;
+            pTarget = (PVOID)pCopy->targetPtr;
         }
+        // Read
         else
-            DPRINT( "BlackBone: %s: PsLookupProcessByProcessId failed with status 0x%X\n", __FUNCTION__, status );
+        {
+            pSourceProc = pProcess;
+            pTargetProc = PsGetCurrentProcess();
+            pSource = (PVOID)pCopy->targetPtr;
+            pTarget = (PVOID)pCopy->localbuf;
+        }
 
+        status = MmCopyVirtualMemory( pSourceProc, pSource, pTargetProc, pTarget, pCopy->size, KernelMode, &bytes );
     }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        DPRINT( "BlackBone: %s: Exception\n", __FUNCTION__ );
-        status = STATUS_UNHANDLED_EXCEPTION;
-    }
+    else
+        DPRINT( "BlackBone: %s: PsLookupProcessByProcessId failed with status 0x%X\n", __FUNCTION__, status );
 
     if (pProcess)
         ObDereferenceObject( pProcess );
@@ -732,11 +723,11 @@ NTSTATUS BBHookSSDT( IN ULONG index, IN PVOID newAddr, OUT PVOID *ppOldAddr )
 
         // Write jmp
         BBWriteTrampoline( pTrampoline, newAddr );
-        offset = (((ULONG_PTR)pTrampoline - (ULONG_PTR)pSSDT->ServiceTableBase) << 4) & 0xFFFFFFF0;
+        offset = ((((ULONG_PTR)pTrampoline - (ULONG_PTR)pSSDT->ServiceTableBase) << 4) & 0xFFFFFFF0) | (pSSDT->ParamTableBase[index] >> 2);
     }
     // Direct jump
     else
-        offset = (offset << 4) & 0xFFFFFFF0;
+        offset = ((offset << 4) & 0xFFFFFFF0) | (pSSDT->ParamTableBase[index] >> 2);
 
     // Update pointer
     ULONGLONG cr0 = __readcr0();

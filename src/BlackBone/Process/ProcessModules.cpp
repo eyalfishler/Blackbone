@@ -97,11 +97,13 @@ const ModuleData* ProcessModules::GetModule(
 /// Get module by base address
 /// </summary>
 /// <param name="modBase">Module base address</param>
+/// <param name="strict">If true modBase must exactly match module base address</param>
 /// <param name="type">Module type. 32 bit or 64 bit</param>
-/// <param name="search">Saerch type.</param>
+/// <param name="search">Saerch type</param>
 /// <returns>Module data. nullptr if not found</returns>
 const ModuleData* ProcessModules::GetModule(
     module_t modBase,
+    bool strict /*= true*/,
     eModSeachType search /*= LdrList*/,
     eModType type /*= mt_default */
     )
@@ -112,9 +114,12 @@ const ModuleData* ProcessModules::GetModule(
 
     CSLock lck( _modGuard );
 
-    auto compFn = [modBase]( const mapModules::value_type& val )
+    auto compFn = [modBase, strict]( const mapModules::value_type& val )
     { 
-        return (val.second.baseAddress == modBase); 
+        if (strict)
+            return (val.second.baseAddress == modBase);
+        else
+            return (modBase >= val.second.baseAddress && modBase < val.second.baseAddress + val.second.size);
     };
 
     auto iter = std::find_if( _modules.begin( ), _modules.end( ), compFn );
@@ -147,8 +152,7 @@ const ModuleData* ProcessModules::GetMainModule()
     if (_core.native()->GetWow64Barrier().x86OS)
     {
         _PEB32 peb = { { { 0 } } };
-
-        if (_proc.core().peb( &peb ) == 0)
+        if (_proc.core().peb32( &peb ) == 0)
             return nullptr;
 
         return GetModule( peb.ImageBaseAddress );
@@ -156,8 +160,7 @@ const ModuleData* ProcessModules::GetMainModule()
     else
     {
         _PEB64 peb = { { { 0 } } };
-
-        if (_proc.core().peb( &peb ) == 0)
+        if (_proc.core().peb64( &peb ) == 0)
             return nullptr;
 
         return GetModule( peb.ImageBaseAddress );
